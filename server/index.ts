@@ -8,6 +8,7 @@ import { createBroadcaster } from './ws/broadcaster.js';
 import { createTriangleCache } from './cache/triangle-cache.js';
 import { createBeatDetector } from './audio/beat-detector.js';
 import type { ClientMessage, VectorData } from './ws/protocol.js';
+import { packVectorData } from './ws/protocol.js';
 
 const app = new Hono();
 const broadcaster = createBroadcaster();
@@ -114,7 +115,7 @@ const poller = createPoller({
     }
 
     if (currentVectorData) {
-      broadcaster.broadcast({ type: 'triangles', data: currentVectorData });
+      broadcaster.broadcastBinary(packVectorData(currentVectorData));
     }
 
     beatDetector.reset();
@@ -157,7 +158,7 @@ const server = Bun.serve({
         }));
       }
       if (currentVectorData) {
-        ws.send(JSON.stringify({ type: 'triangles', data: currentVectorData }));
+        ws.send(packVectorData(currentVectorData));
       }
       ws.send(JSON.stringify({ type: 'playback_state', ...currentPlaybackState }));
     },

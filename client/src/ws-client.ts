@@ -1,6 +1,32 @@
 import type { TrackInfo } from './state/app-state.js';
 import type { VectorData } from './renderer/mesh.js';
 
+// Binary protocol constants (must match server/ws/protocol.ts)
+const BINARY_MSG_TRIANGLES = 0x01;
+const FLOATS_PER_TRI = 9; // x0, y0, x1, y1, x2, y2, r, g, b
+
+function unpackVectorData(buffer: ArrayBuffer): VectorData {
+  const view = new DataView(buffer);
+  const headerSize = 12; // [type:u8][pad:3][width:f32][height:f32]
+  const width = view.getFloat32(4, true);
+  const height = view.getFloat32(8, true);
+  const floats = new Float32Array(buffer, headerSize);
+  const numTris = floats.length / FLOATS_PER_TRI;
+
+  const tris: VectorData['tris'] = new Array(numTris);
+  for (let i = 0; i < numTris; i++) {
+    const off = i * FLOATS_PER_TRI;
+    tris[i] = {
+      x0: floats[off],     y0: floats[off + 1],
+      x1: floats[off + 2], y1: floats[off + 3],
+      x2: floats[off + 4], y2: floats[off + 5],
+      r: floats[off + 6],  g: floats[off + 7], b: floats[off + 8],
+    };
+  }
+
+  return { width, height, tris };
+}
+
 interface WSCallbacks {
   onTrackUpdate(track: TrackInfo): void;
   onTriangles(data: VectorData): void;
@@ -17,6 +43,7 @@ export function createWSClient(url: string, callbacks: WSCallbacks) {
 
   function connect() {
     ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
       reconnectDelay = 1000;
@@ -33,6 +60,17 @@ export function createWSClient(url: string, callbacks: WSCallbacks) {
     };
 
     ws.onmessage = (event) => {
+      // Binary message - triangle data
+      if (event.data instanceof ArrayBuffer) {
+        const view = new DataView(event.data);
+        const msgType = view.getUint8(0);
+        if (msgType === BINARY_MSG_TRIANGLES) {
+          callbacks.onTriangles(unpackVectorData(event.data));
+        }
+        return;
+      }
+
+      // JSON message - everything else
       try {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
@@ -45,9 +83,6 @@ export function createWSClient(url: string, callbacks: WSCallbacks) {
               albumImageUrl: msg.albumImageUrl,
               durationMs: msg.durationMs,
             });
-            break;
-          case 'triangles':
-            callbacks.onTriangles(msg.data);
             break;
           case 'beat':
             callbacks.onBeat(msg.beat1, msg.beat2, msg.beat4);

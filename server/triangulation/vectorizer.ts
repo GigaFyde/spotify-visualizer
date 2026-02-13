@@ -3,7 +3,6 @@ import { triangulate } from './delaunay.js';
 import type { VectorData } from '../ws/protocol.js';
 
 export async function vectorize(imageUrl: string, cutoff = 25000, threshold = 15): Promise<VectorData> {
-  console.log('Vectorizing:', imageUrl);
   const img = await loadImage(imageUrl);
   const { width, height, data } = img;
 
@@ -72,7 +71,6 @@ export async function vectorize(imageUrl: string, cutoff = 25000, threshold = 15
   }
 
   // Add edge points weighted by edge strength
-  const edgeBudget = maxPoints - points.length / 2;
   for (const c of edgeCandidates) {
     if (points.length / 2 >= maxPoints) break;
     const probability = Math.min(1.0, c.weight / 60.0);
