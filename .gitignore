@@ -3,3 +3,5 @@ dist/
 .env
 .tokens.json
 bun.lock
+.DS_Store
+.idea/
