@@ -1,3 +1,5 @@
+import { animConfig } from '../config/animation.js';
+
 export type VisualState = 'blank' | 'fadein' | 'visible' | 'fadeout';
 
 export interface StateMachine {
@@ -21,6 +23,9 @@ export function createStateMachine(): StateMachine {
       let newVisibleUri: string | null = null;
       const stateTime = globalTime - sm.stateStart;
 
+      const fadeInMs = animConfig.fadeInDuration || 14000;
+      const fadeOutMs = animConfig.fadeOutDuration || 5000;
+
       if (sm.state === 'blank') {
         progress = -2.0;
         if (albumUri && albumUri !== visibleAlbumUri) {
@@ -28,10 +33,17 @@ export function createStateMachine(): StateMachine {
           needsVectors = true;
         }
       } else if (sm.state === 'fadein') {
-        progress = -2.0 + stateTime / 7000.0;
-        if (stateTime > 14000.0) {
+        if (fadeInMs <= 0) {
+          // Skip fade-in entirely
+          progress = 0.0;
           sm.state = 'visible';
           sm.stateStart = globalTime;
+        } else {
+          progress = -2.0 + (stateTime / (fadeInMs / 2));
+          if (stateTime > fadeInMs) {
+            sm.state = 'visible';
+            sm.stateStart = globalTime;
+          }
         }
       } else if (sm.state === 'visible') {
         progress = 0.0;
@@ -40,10 +52,16 @@ export function createStateMachine(): StateMachine {
           sm.stateStart = globalTime;
         }
       } else if (sm.state === 'fadeout') {
-        progress = 0.0 + stateTime / 2500.0;
-        if (stateTime > 5000.0) {
+        if (fadeOutMs <= 0) {
+          progress = 2.0;
           sm.state = 'blank';
           sm.stateStart = globalTime;
+        } else {
+          progress = 0.0 + stateTime / (fadeOutMs / 2);
+          if (stateTime > fadeOutMs) {
+            sm.state = 'blank';
+            sm.stateStart = globalTime;
+          }
         }
       }
 

@@ -15,13 +15,17 @@ import { showToast } from './ui/toast.js';
 import { updateProgressBar } from './ui/progress-bar.js';
 import { initControls } from './ui/controls.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
+import { animConfig, setAnimationPreset, ANIMATION_PRESETS } from './config/animation.js';
+
+// Expose config on window for runtime tweaking via console
+declare global { interface Window { viz: any; } }
 
 function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const statusEl = document.getElementById('status');
 
   // Init WebGL
-  const glCtx = initWebGL(canvas, 2);
+  const glCtx = initWebGL(canvas, 1);
   const { gl } = glCtx;
 
   // Compile shaders
@@ -53,7 +57,7 @@ function main() {
   // State
   const appState = createAppState();
   const stateMachine = createStateMachine();
-  const adaptiveQuality = createAdaptiveQuality('medium');
+  const adaptiveQuality = createAdaptiveQuality('high');
   let pendingVectorData: VectorData | null = null;
 
   // WebSocket
@@ -105,6 +109,14 @@ function main() {
     (cmd) => wsClient.send(cmd),
     () => ({ isPlaying: appState.isPlaying, durationMs: appState.durationMs })
   );
+
+  // Expose runtime API on window for console tweaking
+  window.viz = {
+    config: animConfig,
+    presets: ANIMATION_PRESETS,
+    setPreset: setAnimationPreset,
+    quality: adaptiveQuality,
+  };
 
   // Render loop
   function tick() {

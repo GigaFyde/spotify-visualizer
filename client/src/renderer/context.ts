@@ -17,8 +17,8 @@ export function initWebGL(canvas: HTMLCanvasElement, downsample = 2): GLContext 
   };
 
   function fit() {
-    const w = document.body.offsetWidth;
-    const h = document.body.offsetHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     canvas.width = Math.floor(w / downsample);
     canvas.height = Math.floor(h / downsample);
     ctx.viewportWidth = canvas.width;

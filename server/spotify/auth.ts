@@ -1,6 +1,9 @@
+import { join } from 'path';
+
 const SPOTIFY_CLIENT_ID = Bun.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_REDIRECT_URI = Bun.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3000/auth/callback';
 const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
+const TOKEN_FILE = join(import.meta.dir, '../../.tokens.json');
 
 if (!SPOTIFY_CLIENT_ID) {
   console.error('SPOTIFY_CLIENT_ID environment variable is required');
@@ -10,6 +13,33 @@ let codeVerifier = '';
 let accessToken = '';
 let refreshToken = '';
 let expiresAt = 0;
+
+// Persist tokens to disk so they survive server restarts
+function saveTokens(): void {
+  try {
+    Bun.write(TOKEN_FILE, JSON.stringify({ accessToken, refreshToken, expiresAt }));
+  } catch {
+    // Non-fatal - tokens just won't persist
+  }
+}
+
+function loadTokens(): void {
+  try {
+    const text = require('fs').readFileSync(TOKEN_FILE, 'utf-8');
+    const data = JSON.parse(text);
+    if (data.accessToken && data.refreshToken) {
+      accessToken = data.accessToken;
+      refreshToken = data.refreshToken;
+      expiresAt = data.expiresAt ?? 0;
+      console.log('Restored auth tokens from disk');
+    }
+  } catch {
+    // No saved tokens - that's fine
+  }
+}
+
+// Load on startup
+loadTokens();
 
 function generateRandomString(length: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -70,6 +100,7 @@ export async function handleCallback(code: string): Promise<void> {
   accessToken = data.access_token;
   refreshToken = data.refresh_token;
   expiresAt = Date.now() + data.expires_in * 1000;
+  saveTokens();
 }
 
 async function refreshAccessToken(): Promise<void> {
@@ -94,6 +125,7 @@ async function refreshAccessToken(): Promise<void> {
     refreshToken = data.refresh_token;
   }
   expiresAt = Date.now() + data.expires_in * 1000;
+  saveTokens();
 }
 
 export async function getAccessToken(): Promise<string | null> {

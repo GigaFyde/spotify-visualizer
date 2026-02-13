@@ -6,6 +6,7 @@ import { mat4, vec3 } from 'gl-matrix';
 import { drawGeometryPass } from './geometry-pass.js';
 import { drawPostPass } from './post-pass.js';
 import { updateCamera } from './camera.js';
+import { animConfig } from '../config/animation.js';
 
 export interface RenderState {
   globalTime: number;
@@ -31,15 +32,25 @@ export function render(
   state: RenderState
 ): void {
   const { gl } = ctx;
+  const w = animConfig.wobble;
+  const br = animConfig.beatReactivity;
 
   // Update camera
   updateCamera(state.globalTime, state.beatDelta, state.mvMatrix, state.pMatrix, state.eyeVector, ctx.viewportWidth, ctx.viewportHeight);
 
-  // Compute wobble values
-  const t2base = Math.sin(state.globalTime / 1000.0) * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 4600.0));
-  const t3base = Math.cos(state.globalTime / 1300.0) * Math.max(0, 0.3 + 0.5 * Math.cos(state.globalTime / 5400.0));
-  const wobble1 = t2base + state.beatValue * 0.2 * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 3600.0));
-  const wobble2 = t3base + state.beatValue2 * 0.2 * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 5100.0));
+  // Compute wobble values scaled by config
+  const t2base = w * Math.sin(state.globalTime / 1000.0) * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 4600.0));
+  const t3base = w * Math.cos(state.globalTime / 1300.0) * Math.max(0, 0.3 + 0.5 * Math.cos(state.globalTime / 5400.0));
+  const wobble1 = t2base + state.beatValue * 0.2 * br * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 3600.0));
+  const wobble2 = t3base + state.beatValue2 * 0.2 * br * Math.max(0, 0.3 + 0.5 * Math.sin(state.globalTime / 5100.0));
+
+  // Scale beat values for post shader by VHS intensity
+  const vhs = animConfig.vhsEffect;
+  const postBeat1 = state.beatValue * vhs;
+  const postBeat2 = state.beatValue2 * vhs;
+  const postBeat4 = state.beatValue4 * vhs;
+  // Time drives scanlines/noise in the post shader - scale to 0 when VHS off
+  const postTime = vhs > 0 ? state.globalTime : 0;
 
   // Pass 1: Render geometry to color FBO
   gl.bindFramebuffer(gl.FRAMEBUFFER, colorFb.framebuffer);
@@ -89,9 +100,9 @@ export function render(
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
   gl.useProgram(postShader.program);
-  gl.uniform1f(postShader.uniforms['time'], state.globalTime);
-  gl.uniform1f(postShader.uniforms['fBeat1'], state.beatValue);
-  gl.uniform1f(postShader.uniforms['fBeat2'], state.beatValue2);
-  gl.uniform1f(postShader.uniforms['fBeat3'], state.beatValue4);
+  gl.uniform1f(postShader.uniforms['time'], postTime);
+  gl.uniform1f(postShader.uniforms['fBeat1'], postBeat1);
+  gl.uniform1f(postShader.uniforms['fBeat2'], postBeat2);
+  gl.uniform1f(postShader.uniforms['fBeat3'], postBeat4);
   drawPostPass(gl, postShader, postBuffers, colorFb.texture, depthFb.texture, noiseTex);
 }
