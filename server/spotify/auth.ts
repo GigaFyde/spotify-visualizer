@@ -1,45 +1,10 @@
-import { join } from 'path';
-
 const SPOTIFY_CLIENT_ID = Bun.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_REDIRECT_URI = Bun.env.SPOTIFY_REDIRECT_URI || 'http://127.0.0.1:3000/auth/callback';
 const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
-const TOKEN_FILE = join(import.meta.dir, '../../.tokens.json');
 
 if (!SPOTIFY_CLIENT_ID) {
   console.error('SPOTIFY_CLIENT_ID environment variable is required');
 }
-
-let codeVerifier = '';
-let accessToken = '';
-let refreshToken = '';
-let expiresAt = 0;
-
-// Persist tokens to disk so they survive server restarts
-function saveTokens(): void {
-  try {
-    Bun.write(TOKEN_FILE, JSON.stringify({ accessToken, refreshToken, expiresAt }));
-  } catch {
-    // Non-fatal - tokens just won't persist
-  }
-}
-
-function loadTokens(): void {
-  try {
-    const text = require('fs').readFileSync(TOKEN_FILE, 'utf-8');
-    const data = JSON.parse(text);
-    if (data.accessToken && data.refreshToken) {
-      accessToken = data.accessToken;
-      refreshToken = data.refreshToken;
-      expiresAt = data.expiresAt ?? 0;
-      console.log('Restored auth tokens from disk');
-    }
-  } catch {
-    // No saved tokens - that's fine
-  }
-}
-
-// Load on startup
-loadTokens();
 
 function generateRandomString(length: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -61,8 +26,13 @@ function base64urlencode(buffer: ArrayBuffer): string {
   return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export async function getLoginUrl(): Promise<string> {
-  codeVerifier = generateRandomString(64);
+/** Generate a PKCE code verifier */
+export function generateCodeVerifier(): string {
+  return generateRandomString(64);
+}
+
+/** Generate a Spotify authorization URL using a code verifier */
+export async function generateLoginUrl(codeVerifier: string): Promise<string> {
   const hashed = await sha256(codeVerifier);
   const codeChallenge = base64urlencode(hashed);
 
@@ -78,7 +48,12 @@ export async function getLoginUrl(): Promise<string> {
   return `https://accounts.spotify.com/authorize?${params.toString()}`;
 }
 
-export async function handleCallback(code: string): Promise<void> {
+/** Exchange an authorization code for tokens */
+export async function exchangeCode(code: string, codeVerifier: string): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}> {
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -97,13 +72,19 @@ export async function handleCallback(code: string): Promise<void> {
   }
 
   const data = await response.json();
-  accessToken = data.access_token;
-  refreshToken = data.refresh_token;
-  expiresAt = Date.now() + data.expires_in * 1000;
-  saveTokens();
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
 }
 
-async function refreshAccessToken(): Promise<void> {
+/** Refresh an access token using a refresh token */
+export async function refreshAccessToken(refreshToken: string): Promise<{
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+}> {
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -120,25 +101,9 @@ async function refreshAccessToken(): Promise<void> {
   }
 
   const data = await response.json();
-  accessToken = data.access_token;
-  if (data.refresh_token) {
-    refreshToken = data.refresh_token;
-  }
-  expiresAt = Date.now() + data.expires_in * 1000;
-  saveTokens();
-}
-
-export async function getAccessToken(): Promise<string | null> {
-  if (!accessToken) return null;
-
-  // Refresh if within 60 seconds of expiry
-  if (Date.now() > expiresAt - 60000) {
-    await refreshAccessToken();
-  }
-
-  return accessToken;
-}
-
-export function isAuthenticated(): boolean {
-  return accessToken !== '' && refreshToken !== '';
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || undefined,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  };
 }

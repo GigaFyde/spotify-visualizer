@@ -6,8 +6,16 @@ export interface GLContext {
   setDownsample(factor: number): void;
 }
 
-export function initWebGL(canvas: HTMLCanvasElement, downsample = 2): GLContext {
-  const gl = canvas.getContext('webgl', { alpha: true });
+export interface GLOptions {
+  alpha?: boolean;
+  preserveDrawingBuffer?: boolean;
+}
+
+export function initWebGL(canvas: HTMLCanvasElement, downsample = 2, useDPR = false, options?: GLOptions): GLContext {
+  const gl = canvas.getContext('webgl', {
+    alpha: options?.alpha ?? true,
+    preserveDrawingBuffer: options?.preserveDrawingBuffer ?? false,
+  });
   if (!gl) throw new Error('WebGL not supported');
 
   const ctx: GLContext = {
@@ -17,8 +25,9 @@ export function initWebGL(canvas: HTMLCanvasElement, downsample = 2): GLContext 
   };
 
   function fit() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const dpr = useDPR ? (window.devicePixelRatio || 1) : 1;
+    const w = window.innerWidth * dpr;
+    const h = window.innerHeight * dpr;
     canvas.width = Math.floor(w / downsample);
     canvas.height = Math.floor(h / downsample);
     ctx.viewportWidth = canvas.width;

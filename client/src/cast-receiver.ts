@@ -12,79 +12,144 @@ import { createWSClient } from './ws-client.js';
 import { createAdaptiveQuality } from './quality/adaptive.js';
 import { PRESETS } from './quality/presets.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
-import { animConfig, setAnimationPreset } from './config/animation.js';
+import { setAnimationPreset, animConfig } from './config/animation.js';
 
 declare const cast: any;
 
-/** Detect cast device type from screen dimensions */
-function detectCastDevice(): 'nest-hub-2' | 'nest-hub-1' | 'tv' | 'unknown' {
-  const w = screen.width || window.innerWidth;
-  const h = screen.height || window.innerHeight;
-  console.log(`[cast-receiver] Screen: ${w}x${h}`);
+const NAMESPACE = 'urn:x-cast:com.gigafyde.viz';
 
-  // Nest Hub 2: 1024x600
-  if (w === 1024 && h === 600) return 'nest-hub-2';
-  // Nest Hub 1st gen: 1024x600 (same res, but less GPU - treat same)
-  // Chromecast on TV: typically 1920x1080 or 1280x720
-  if (w >= 1280) return 'tv';
+/** Detect cast device type from screen + viewport dimensions */
+function detectCastDevice(): 'nest-hub-2' | 'nest-hub-1' | 'tv' | 'unknown' {
+  const sw = screen.width || window.innerWidth;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const isFuchsia = navigator.userAgent.includes('Fuchsia');
+
+  // Nest Hub 2: screen 1280x720 but viewport 1024x600, runs Fuchsia
+  if ((vw === 1024 && vh === 600) || isFuchsia) return 'nest-hub-2';
+  // TV / Shield / Chromecast — anything not a smart display
+  if (sw >= 960) return 'tv';
   return 'unknown';
 }
 
 function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+  const displayImg = document.getElementById('display-img') as HTMLImageElement;
+  const displayCanvas = document.getElementById('display-canvas') as HTMLCanvasElement;
+  const overlay = document.getElementById('overlay');
+  const loaderStatus = document.getElementById('loader-status');
+
+  function setStatus(text: string, isError = false) {
+    if (loaderStatus) {
+      loaderStatus.textContent = text;
+      loaderStatus.classList.toggle('error', isError);
+    }
+  }
+
+  function hideOverlay() {
+    overlay?.classList.add('hidden');
+  }
+
   const device = detectCastDevice();
-  console.log(`[cast-receiver] Detected device: ${device}`);
 
   // Device-specific tuning
   if (device === 'nest-hub-2') {
-    // Small display, weak GPU - optimize for smooth performance
     setAnimationPreset('clean');
-    // Reduce camera movement further for small screen viewing distance
     animConfig.cameraMovement = 0.2;
     animConfig.fovBreathing = 0.15;
     animConfig.cameraRoll = 0.05;
-    // Keep some beat reactivity for life
     animConfig.beatReactivity = 0.4;
-    // Disable heavy post-fx
     animConfig.vhsEffect = 0;
     animConfig.scanlines = 0;
     animConfig.chromaticAberration = 0;
     animConfig.vignette = 0.2;
   } else {
-    // TV or unknown - use subtle preset (good for viewing distance)
     setAnimationPreset('subtle');
   }
 
-  // Init WebGL - Nest Hub gets higher downsample from the start
+  // TV devices: Android TV cast browser compositor can't display <canvas> at all
+  // Workaround: render WebGL to hidden canvas, blit each frame to <img> via toDataURL
+  // Blit modes: 'off' (direct canvas), 'img_jpeg', '2d_canvas'
+  let blitMode: 'off' | 'img_jpeg' | '2d_canvas' = (device === 'tv' || device === 'unknown') ? 'img_jpeg' : 'off';
+  let blitCtx: CanvasRenderingContext2D | null = null;
+
+  function setBlitMode(mode: typeof blitMode) {
+    blitMode = mode;
+    displayImg.style.display = 'none';
+    displayCanvas.style.display = 'none';
+    blitCtx = null;
+
+    if (mode === 'off') {
+      canvas.style.position = '';
+      canvas.style.opacity = '';
+      canvas.style.pointerEvents = '';
+      canvas.style.zIndex = '';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+    } else {
+      canvas.style.position = 'fixed';
+      canvas.style.opacity = '0';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '-1';
+      canvas.style.width = '1px';
+      canvas.style.height = '1px';
+
+      if (mode === '2d_canvas') {
+        displayCanvas.width = window.innerWidth;
+        displayCanvas.height = window.innerHeight;
+        blitCtx = displayCanvas.getContext('2d');
+        displayCanvas.style.display = 'block';
+      } else {
+        displayImg.style.display = 'block';
+      }
+    }
+  }
+
+  setBlitMode(blitMode);
+
+  // Init WebGL
   const initialDownsample = device === 'nest-hub-2' ? 2 : 1;
-  const glCtx = initWebGL(canvas, initialDownsample);
+  const useDPR = device !== 'nest-hub-2';
+  const glCtx = initWebGL(canvas, initialDownsample, useDPR, {
+    alpha: false,
+    preserveDrawingBuffer: blitMode !== 'off',
+  });
   const { gl } = glCtx;
 
   // Compile shaders
-  const geometryShader = compileShaderProgram(gl, geometryVert, geometryFrag,
-    ['aVertexPosition', 'aVertexColor', 'aVertexData1', 'aVertexData2'],
-    ['uPMatrix', 'uMVMatrix', 'uPMatrix2', 'uMVMatrix2', 'eyeVector', 'time', 'progress', 'wobble1', 'wobble2', 'uWriteDepth']
-  );
-
-  // Nest Hub skips full post shader entirely to save GPU
+  let geometryShader: ReturnType<typeof compileShaderProgram>;
+  let postLowShader: ReturnType<typeof compileShaderProgram>;
+  let postFullShader: ReturnType<typeof compileShaderProgram>;
+  let postShader: ReturnType<typeof compileShaderProgram>;
   const useFullPost = device !== 'nest-hub-2';
 
-  let postShader = useFullPost
-    ? compileShaderProgram(gl, postVert, postFrag,
-        ['aVertexPosition', 'aVertexTexture'],
-        ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3'])
-    : compileShaderProgram(gl, postVert, postLowFrag,
-        ['aVertexPosition', 'aVertexTexture'],
-        ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3']);
+  try {
+    geometryShader = compileShaderProgram(gl, geometryVert, geometryFrag,
+      ['aVertexPosition', 'aVertexColor', 'aVertexData1', 'aVertexData2'],
+      ['uPMatrix', 'uMVMatrix', 'uPMatrix2', 'uMVMatrix2', 'eyeVector', 'time', 'progress', 'wobble1', 'wobble2', 'uWriteDepth']
+    );
+  } catch { /* shader compile failure handled by null check in render loop */ }
 
-  const postLowShader = useFullPost
-    ? compileShaderProgram(gl, postVert, postLowFrag,
-        ['aVertexPosition', 'aVertexTexture'],
-        ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3'])
-    : postShader;
-  const postFullShader = useFullPost ? postShader : postLowShader;
+  try {
+    postShader = useFullPost
+      ? compileShaderProgram(gl, postVert, postFrag,
+          ['aVertexPosition', 'aVertexTexture'],
+          ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3'])
+      : compileShaderProgram(gl, postVert, postLowFrag,
+          ['aVertexPosition', 'aVertexTexture'],
+          ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3']);
+  } catch { /* handled by null check */ }
 
-  // Create GPU resources - Nest Hub uses smaller framebuffers
+  try {
+    postLowShader = useFullPost
+      ? compileShaderProgram(gl, postVert, postLowFrag,
+          ['aVertexPosition', 'aVertexTexture'],
+          ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3'])
+      : postShader!;
+    postFullShader = useFullPost ? postShader! : postLowShader;
+  } catch { /* handled by null check */ }
+
+  // Create GPU resources
   const rttSize = device === 'nest-hub-2' ? 256 : 1024;
   let colorFb = createFramebuffer(gl, rttSize, rttSize);
   let depthFb = createFramebuffer(gl, rttSize, rttSize);
@@ -93,63 +158,124 @@ function main() {
   const postBuffers = createPostBuffers(gl);
   initPostBuffers(gl, postBuffers);
 
-  // State - Nest Hub starts and stays at potato, TV starts at potato and scales up
+  canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+
+  // State
   const appState = createAppState();
   const stateMachine = createStateMachine();
   const adaptiveQuality = createAdaptiveQuality('potato');
   let pendingVectorData: VectorData | null = null;
 
-  // Nest Hub: lock to potato, disable adaptive scaling
   if (device === 'nest-hub-2') {
     adaptiveQuality.forcePreset('potato');
+  } else {
+    applyQualityPreset('potato');
   }
 
-  // WebSocket - same origin as receiver
+  function applyQualityPreset(name: string) {
+    const applied = adaptiveQuality.forcePreset(name);
+    const preset = PRESETS[applied];
+    glCtx.setDownsample(preset.canvasDownsample);
+    postShader = preset.useFullPost ? postFullShader : postLowShader;
+    if (colorFb.width !== preset.rttResolution) {
+      colorFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
+      depthFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
+    }
+  }
+
+  // Deferred WS connection — waits for cast token from sender
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${wsProto}//${location.host}/ws`;
-  createWSClient(wsUrl, {
-    onConnect() {
-      appState.connected = true;
-      console.log('[cast-receiver] WS connected');
-    },
-    onDisconnect() {
-      appState.connected = false;
-      console.log('[cast-receiver] WS disconnected');
-    },
-    onTrackUpdate(track) {
-      appState.track = track;
-      appState.durationMs = track.durationMs;
-    },
-    onTriangles(data) {
-      if (stateMachine.state === 'blank' || stateMachine.state === 'fadein') {
-        updateMeshBuffers(gl, meshBuffers, data);
-        if (stateMachine.state === 'blank') {
-          stateMachine.state = 'fadein';
-          stateMachine.stateStart = appState.globalTime;
+  let wsClient: ReturnType<typeof createWSClient> | null = null;
+  let castSenderId: string | null = null;
+
+  function requestNewToken() {
+    if (castSenderId) {
+      const castContext = cast.framework.CastReceiverContext.getInstance();
+      castContext.sendCustomMessage(NAMESPACE, castSenderId, { type: 'reconnect' });
+    }
+  }
+
+  function connectWS(castToken: string) {
+    if (wsClient) {
+      wsClient.close();
+      wsClient = null;
+    }
+
+    setStatus('Connecting...');
+    const wsUrl = `${wsProto}//${location.host}/ws?cast_token=${encodeURIComponent(castToken)}`;
+
+    wsClient = createWSClient(wsUrl, {
+      onConnect() {
+        appState.connected = true;
+        setStatus('Connected');
+        hideOverlay();
+      },
+      onDisconnect() {
+        appState.connected = false;
+        setStatus('Disconnected — requesting new token...', true);
+        wsClient?.close();
+        wsClient = null;
+        requestNewToken();
+      },
+      onTrackUpdate(track) {
+        appState.track = track;
+        appState.durationMs = track.durationMs;
+      },
+      onTriangles(data) {
+        if (stateMachine.state === 'blank' || stateMachine.state === 'fadein') {
+          updateMeshBuffers(gl, meshBuffers, data);
+          if (stateMachine.state === 'blank') {
+            stateMachine.state = 'fadein';
+            stateMachine.stateStart = appState.globalTime;
+          }
+        } else {
+          pendingVectorData = data;
         }
-      } else {
-        pendingVectorData = data;
+        if (appState.track) {
+          appState.visibleAlbumUri = appState.track.albumUri;
+        }
+      },
+      onBeat(beat1, beat2, beat4) {
+        if (beat1 > 0) { appState.beatValue = 1.0; appState.beatDelta += 1.0; }
+        if (beat2 > 0) appState.beatValue2 = 1.0;
+        if (beat4 > 0) appState.beatValue4 = 1.0;
+      },
+      onPlaybackState(positionMs, durationMs, isPlaying) {
+        appState.positionMs = positionMs;
+        appState.durationMs = durationMs;
+        appState.isPlaying = isPlaying;
+      },
+      onAuthRequired() {
+        setStatus('Session expired — re-cast from sender', true);
+      },
+    });
+  }
+
+  // CAF receiver context + custom message listener
+  const castContext = cast.framework.CastReceiverContext.getInstance();
+
+  castContext.addCustomMessageListener(NAMESPACE, (event: any) => {
+    const msg = event.data;
+
+    if (msg.type === 'init' && msg.castToken) {
+      castSenderId = event.senderId || null;
+      connectWS(msg.castToken);
+    }
+
+    if (msg.type === 'settings') {
+      if (msg.animationPreset) {
+        setAnimationPreset(msg.animationPreset);
       }
-      if (appState.track) {
-        appState.visibleAlbumUri = appState.track.albumUri;
+      if (msg.qualityPreset) {
+        applyQualityPreset(msg.qualityPreset);
       }
-    },
-    onBeat(beat1, beat2, beat4) {
-      if (beat1 > 0) { appState.beatValue = 1.0; appState.beatDelta += 1.0; }
-      if (beat2 > 0) appState.beatValue2 = 1.0;
-      if (beat4 > 0) appState.beatValue4 = 1.0;
-    },
-    onPlaybackState(positionMs, durationMs, isPlaying) {
-      appState.positionMs = positionMs;
-      appState.durationMs = durationMs;
-      appState.isPlaying = isPlaying;
-    },
+      if (msg.blitMode) {
+        setBlitMode(msg.blitMode);
+      }
+    }
   });
 
-  // Start CAF receiver context
-  const castContext = cast.framework.CastReceiverContext.getInstance();
   castContext.start();
-  console.log('[cast-receiver] CAF receiver started');
 
   // Render loop
   function tick() {
@@ -176,17 +302,26 @@ function main() {
       stateMachine.stateStart = appState.globalTime;
     }
 
-    render(glCtx, geometryShader, postShader, meshBuffers, postBuffers, colorFb, depthFb, noiseTex, {
-      globalTime: appState.globalTime,
-      progress: smResult.progress,
-      beatValue: appState.beatValue,
-      beatValue2: appState.beatValue2,
-      beatValue4: appState.beatValue4,
-      beatDelta: appState.beatDelta,
-      mvMatrix,
-      pMatrix,
-      eyeVector,
-    });
+    if (!gl.isContextLost() && geometryShader! && postShader!) {
+      render(glCtx, geometryShader, postShader, meshBuffers, postBuffers, colorFb, depthFb, noiseTex, {
+        globalTime: appState.globalTime,
+        progress: smResult.progress,
+        beatValue: appState.beatValue,
+        beatValue2: appState.beatValue2,
+        beatValue4: appState.beatValue4,
+        beatDelta: appState.beatDelta,
+        mvMatrix,
+        pMatrix,
+        eyeVector,
+      });
+    }
+
+    // Blit WebGL canvas to visible element for TV devices
+    if (blitMode === 'img_jpeg') {
+      displayImg.src = canvas.toDataURL('image/jpeg', 0.85);
+    } else if (blitMode === '2d_canvas' && blitCtx) {
+      blitCtx.drawImage(canvas, 0, 0, displayCanvas.width, displayCanvas.height);
+    }
 
     appState.beatValue = Math.max(0, appState.beatValue - 0.015);
     appState.beatValue2 = Math.max(0, appState.beatValue2 - 0.015);
@@ -202,7 +337,6 @@ function main() {
         colorFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
         depthFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
       }
-      console.log('[cast-receiver] Quality:', preset.name);
     }
   }
 

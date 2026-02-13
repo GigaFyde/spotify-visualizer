@@ -9,11 +9,80 @@
     * { margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
     canvas { display: block; width: 100%; height: 100%; }
+    #display-img {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 1;
+    }
+    #display-canvas {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
     cast-media-player { display: none; }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      z-index: 10;
+      transition: opacity 0.6s;
+    }
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #overlay .loader-title {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #1db954;
+      margin-bottom: 1rem;
+    }
+    #overlay .loader-status {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 0.875rem;
+      color: #b3b3b3;
+    }
+    #overlay .loader-status.error {
+      color: #e74c3c;
+    }
+    #overlay .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #333;
+      border-top-color: #1db954;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1.5rem;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
+  <img id="display-img">
+  <canvas id="display-canvas"></canvas>
+  <div id="overlay">
+    <div class="spinner"></div>
+    <div class="loader-title">Spotify Visualizer</div>
+    <div class="loader-status" id="loader-status">Waiting for sender...</div>
+  </div>
   <cast-media-player></cast-media-player>
   <script type="module" src="/src/cast-receiver.ts"></script>
 </body>
