@@ -34,6 +34,7 @@ interface WSCallbacks {
   onPlaybackState(positionMs: number, durationMs: number, isPlaying: boolean): void;
   onConnect(): void;
   onDisconnect(): void;
+  onAuthRequired?(): void;
 }
 
 export function createWSClient(url: string, callbacks: WSCallbacks) {
@@ -89,6 +90,9 @@ export function createWSClient(url: string, callbacks: WSCallbacks) {
             break;
           case 'playback_state':
             callbacks.onPlaybackState(msg.positionMs, msg.durationMs, msg.isPlaying);
+            break;
+          case 'auth_required':
+            callbacks.onAuthRequired?.();
             break;
         }
       } catch (e) {

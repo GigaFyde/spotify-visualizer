@@ -15,6 +15,7 @@ import { showToast } from './ui/toast.js';
 import { updateProgressBar } from './ui/progress-bar.js';
 import { initControls } from './ui/controls.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
+import { createLoginPrompt } from './ui/login-prompt.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
 import { animConfig, setAnimationPreset, ANIMATION_PRESETS } from './config/animation.js';
 
@@ -104,6 +105,9 @@ function main() {
       appState.durationMs = durationMs;
       appState.isPlaying = isPlaying;
     },
+    onAuthRequired() {
+      loginPrompt.show();
+    },
   });
 
   // Controls
@@ -111,6 +115,9 @@ function main() {
     (cmd) => wsClient.send(cmd),
     () => ({ isPlaying: appState.isPlaying, durationMs: appState.durationMs })
   );
+
+  // Login prompt - checks /auth/status on load
+  const loginPrompt = createLoginPrompt();
 
   // Settings panel
   const settingsPanel = createSettingsPanel(adaptiveQuality, (presetName) => {

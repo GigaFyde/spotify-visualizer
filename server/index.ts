@@ -121,6 +121,12 @@ const poller = createPoller({
     beatDetector.reset();
   },
 
+  onAuthError: () => {
+    broadcaster.broadcast({ type: 'auth_required' });
+    poller.stop();
+    console.log('Auth expired — clients notified');
+  },
+
   onPlaybackState: (positionMs, durationMs, isPlaying) => {
     currentPlaybackState = { positionMs, durationMs, isPlaying };
     if (currentTrack) {

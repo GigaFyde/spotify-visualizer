@@ -14,6 +14,7 @@ async function spotifyFetch(url: string, options?: RequestInit): Promise<Respons
 export async function getCurrentlyPlaying() {
   const res = await spotifyFetch(`${BASE_URL}/me/player/currently-playing`);
   if (res.status === 204 || res.status === 202) return null;
+  if (res.status === 401) throw new Error('Not authenticated');
   if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
   return res.json();
 }

@@ -113,3 +113,31 @@ div.status {
   width: 12px; height: 12px; border-radius: 50%;
   background: #1ed660; cursor: pointer; border: none;
 }
+
+/* Login overlay */
+.login-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(16px);
+  opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+}
+.login-overlay.visible { opacity: 1; pointer-events: auto; }
+
+.login-card {
+  text-align: center; padding: 48px 40px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px; max-width: 360px;
+}
+.login-card h1 {
+  font: 600 22px "Helvetica Neue", Helvetica, sans-serif; color: #fff; margin: 0 0 8px;
+}
+.login-card p {
+  font: 300 14px "Helvetica Neue", Helvetica, sans-serif; color: rgba(255,255,255,0.5);
+  margin: 0 0 28px;
+}
+.login-btn {
+  display: inline-block; padding: 12px 32px;
+  background: #1ed660; color: #000; font: 600 14px "Helvetica Neue", Helvetica, sans-serif;
+  border-radius: 24px; text-decoration: none; transition: all 0.2s;
+}
+.login-btn:hover { background: #1fdf67; transform: scale(1.03); }

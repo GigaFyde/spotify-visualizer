@@ -10,6 +10,7 @@ type PollCallback = {
     uri: string;
   }) => void;
   onPlaybackState: (positionMs: number, durationMs: number, isPlaying: boolean) => void;
+  onAuthError?: () => void;
 };
 
 export function createPoller(callbacks: PollCallback) {
@@ -45,8 +46,11 @@ export function createPoller(callbacks: PollCallback) {
           data.is_playing ?? false,
         );
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Poll error:', err);
+      if (err?.message?.includes('Not authenticated') || err?.message?.includes('401')) {
+        callbacks.onAuthError?.();
+      }
     }
 
     if (running) {
