@@ -11,18 +11,16 @@ import { createAppState } from './state/app-state.js';
 import { createWSClient } from './ws-client.js';
 import { createAdaptiveQuality } from './quality/adaptive.js';
 import { PRESETS } from './quality/presets.js';
-import { showToast } from './ui/toast.js';
-import { updateProgressBar } from './ui/progress-bar.js';
-import { initControls } from './ui/controls.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
-import { animConfig, setAnimationPreset, ANIMATION_PRESETS } from './config/animation.js';
+import { setAnimationPreset } from './config/animation.js';
 
-// Expose config on window for runtime tweaking via console
-declare global { interface Window { viz: any; } }
+declare const cast: any;
 
 function main() {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-  const statusEl = document.getElementById('status');
+
+  // Use subtle preset for TV viewing distance
+  setAnimationPreset('subtle');
 
   // Init WebGL
   const glCtx = initWebGL(canvas, 1);
@@ -34,7 +32,6 @@ function main() {
     ['uPMatrix', 'uMVMatrix', 'uPMatrix2', 'uMVMatrix2', 'eyeVector', 'time', 'progress', 'wobble1', 'wobble2', 'uWriteDepth']
   );
 
-  // Start with full post shader - may switch to low later based on quality
   let postShader = compileShaderProgram(gl, postVert, postFrag,
     ['aVertexPosition', 'aVertexTexture'],
     ['tColor', 'tDepth', 'tNoise', 'time', 'fBeat1', 'fBeat2', 'fBeat3']
@@ -57,28 +54,33 @@ function main() {
   // State
   const appState = createAppState();
   const stateMachine = createStateMachine();
-  const adaptiveQuality = createAdaptiveQuality('high');
+  const adaptiveQuality = createAdaptiveQuality('potato');
   let pendingVectorData: VectorData | null = null;
 
-  // WebSocket
+  // Apply potato preset immediately
+  const potatoPreset = PRESETS['potato'];
+  glCtx.setDownsample(potatoPreset.canvasDownsample);
+  postShader = postLowShader;
+  colorFb = createFramebuffer(gl, potatoPreset.rttResolution, potatoPreset.rttResolution);
+  depthFb = createFramebuffer(gl, potatoPreset.rttResolution, potatoPreset.rttResolution);
+
+  // WebSocket - same origin as receiver
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProto}//${location.host}/ws`;
-  const wsClient = createWSClient(wsUrl, {
+  createWSClient(wsUrl, {
     onConnect() {
       appState.connected = true;
-      if (statusEl) statusEl.textContent = 'Connected';
+      console.log('[cast-receiver] WS connected');
     },
     onDisconnect() {
       appState.connected = false;
-      if (statusEl) statusEl.textContent = 'Disconnected';
+      console.log('[cast-receiver] WS disconnected');
     },
     onTrackUpdate(track) {
       appState.track = track;
       appState.durationMs = track.durationMs;
-      showToast(track.name, track.artist + ' - ' + track.album);
     },
     onTriangles(data) {
-      // If we're in blank state, apply immediately and start fadein
       if (stateMachine.state === 'blank' || stateMachine.state === 'fadein') {
         updateMeshBuffers(gl, meshBuffers, data);
         if (stateMachine.state === 'blank') {
@@ -86,7 +88,6 @@ function main() {
           stateMachine.stateStart = appState.globalTime;
         }
       } else {
-        // Queue for when we return to blank
         pendingVectorData = data;
       }
       if (appState.track) {
@@ -105,19 +106,10 @@ function main() {
     },
   });
 
-  // Controls
-  initControls(
-    (cmd) => wsClient.send(cmd),
-    () => ({ isPlaying: appState.isPlaying, durationMs: appState.durationMs })
-  );
-
-  // Expose runtime API on window for console tweaking
-  window.viz = {
-    config: animConfig,
-    presets: ANIMATION_PRESETS,
-    setPreset: setAnimationPreset,
-    quality: adaptiveQuality,
-  };
+  // Start CAF receiver context
+  const castContext = cast.framework.CastReceiverContext.getInstance();
+  castContext.start();
+  console.log('[cast-receiver] CAF receiver started');
 
   // Render loop
   function tick() {
@@ -129,16 +121,13 @@ function main() {
     appState.lastFrameTime = now;
     appState.globalTime = now - appState.firstTime;
 
-    // Interpolate track position
     if (appState.isPlaying) {
       appState.positionMs += dt;
     }
 
-    // Update state machine
     const albumUri = appState.track?.albumUri ?? '';
     const smResult = stateMachine.update(appState.globalTime, albumUri, appState.visibleAlbumUri);
 
-    // Handle blank state - apply pending vectors
     if (stateMachine.state === 'blank' && pendingVectorData) {
       updateMeshBuffers(gl, meshBuffers, pendingVectorData);
       pendingVectorData = null;
@@ -147,7 +136,6 @@ function main() {
       stateMachine.stateStart = appState.globalTime;
     }
 
-    // Render
     render(glCtx, geometryShader, postShader, meshBuffers, postBuffers, colorFb, depthFb, noiseTex, {
       globalTime: appState.globalTime,
       progress: smResult.progress,
@@ -160,13 +148,9 @@ function main() {
       eyeVector,
     });
 
-    // Beat decay (matching original: 0.015 per frame)
     appState.beatValue = Math.max(0, appState.beatValue - 0.015);
     appState.beatValue2 = Math.max(0, appState.beatValue2 - 0.015);
     appState.beatValue4 = Math.max(0, appState.beatValue4 - 0.015);
-
-    // UI updates
-    updateProgressBar(appState.positionMs, appState.durationMs);
 
     // Adaptive quality
     const newPreset = adaptiveQuality.update(dt);
@@ -174,12 +158,11 @@ function main() {
       const preset = PRESETS[newPreset];
       glCtx.setDownsample(preset.canvasDownsample);
       postShader = preset.useFullPost ? postFullShader : postLowShader;
-      // Recreate framebuffers if resolution changed
       if (colorFb.width !== preset.rttResolution) {
         colorFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
         depthFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
       }
-      console.log('Quality:', preset.name);
+      console.log('[cast-receiver] Quality:', preset.name);
     }
   }
 
