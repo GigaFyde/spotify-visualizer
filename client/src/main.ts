@@ -14,6 +14,7 @@ import { PRESETS } from './quality/presets.js';
 import { showToast } from './ui/toast.js';
 import { updateProgressBar } from './ui/progress-bar.js';
 import { initControls } from './ui/controls.js';
+import { createSettingsPanel } from './ui/settings-panel.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
 import { animConfig, setAnimationPreset, ANIMATION_PRESETS } from './config/animation.js';
 
@@ -111,12 +112,30 @@ function main() {
     () => ({ isPlaying: appState.isPlaying, durationMs: appState.durationMs })
   );
 
+  // Settings panel
+  const settingsPanel = createSettingsPanel(adaptiveQuality, (presetName) => {
+    const preset = PRESETS[presetName];
+    if (!preset) return;
+    glCtx.setDownsample(preset.canvasDownsample);
+    postShader = preset.useFullPost ? postFullShader : postLowShader;
+    if (colorFb.width !== preset.rttResolution) {
+      colorFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
+      depthFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
+    }
+    console.log('Quality:', preset.name);
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 's' || e.key === 'S') settingsPanel.toggle();
+  });
+
   // Expose runtime API on window for console tweaking
   window.viz = {
     config: animConfig,
     presets: ANIMATION_PRESETS,
     setPreset: setAnimationPreset,
     quality: adaptiveQuality,
+    settings: settingsPanel,
   };
 
   // Render loop
@@ -180,6 +199,7 @@ function main() {
         depthFb = createFramebuffer(gl, preset.rttResolution, preset.rttResolution);
       }
       console.log('Quality:', preset.name);
+      settingsPanel.syncQuality();
     }
   }
 

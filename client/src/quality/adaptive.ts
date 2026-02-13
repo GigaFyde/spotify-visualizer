@@ -5,9 +5,12 @@ export function createAdaptiveQuality(initialPreset = 'medium') {
   let frameTimes: number[] = [];
   let windowStart = performance.now();
   let lastChange = 0;
+  let autoEnabled = true;
 
   return {
     update(dt: number): string | null {
+      if (!autoEnabled) return null;
+
       frameTimes.push(dt);
       const now = performance.now();
 
@@ -33,9 +36,18 @@ export function createAdaptiveQuality(initialPreset = 'medium') {
       return null;
     },
     currentPreset() { return PRESET_ORDER[currentIndex]; },
+    isAuto() { return autoEnabled; },
+    setAuto(enabled: boolean) { autoEnabled = enabled; },
     forcePreset(name: string) {
       const idx = PRESET_ORDER.indexOf(name);
-      if (idx >= 0) currentIndex = idx;
+      if (idx >= 0) {
+        currentIndex = idx;
+        autoEnabled = false;
+      }
+      return PRESET_ORDER[currentIndex];
+    },
+    enableAuto() {
+      autoEnabled = true;
     },
   };
 }
