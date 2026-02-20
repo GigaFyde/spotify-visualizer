@@ -69,6 +69,11 @@ export class PriorityQueue {
     });
   }
 
+  /** Return the priority of the next entry without dequeuing. */
+  peekPriority(): Priority | null {
+    return this.queue[0]?.priority ?? null;
+  }
+
   /**
    * Signal the next queued request to proceed.
    * Returns true if a request was dequeued, false if queue was empty.

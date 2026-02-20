@@ -3,6 +3,7 @@ import { serveStatic } from 'hono/bun';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { generateCodeVerifier, generateLoginUrl, exchangeCode } from './spotify/auth.js';
 import { sendCommand, spotifyClient } from './spotify/api.js';
+import { BudgetExceededError } from './spotify/spotify-client.js';
 import { packVectorData } from './ws/protocol.js';
 import { createTriangleCache } from './cache/triangle-cache.js';
 import { SessionManager } from './session/session-manager.js';
@@ -145,6 +146,9 @@ app.post('/api/command', async (c) => {
     session.pollNow();
     return c.json({ ok: true });
   } catch (err: any) {
+    if (err instanceof BudgetExceededError) {
+      return c.json({ error: 'Rate limited' }, 429);
+    }
     return c.json({ error: err.message }, 500);
   }
 });
@@ -256,26 +260,31 @@ const server = Bun.serve<WsData>({
           if (!token) return;
 
           const sid = ws.data.sessionId;
-          switch (msg.action) {
-            case 'play':
-              sendCommand(token, 'play', 'PUT', undefined, sid);
-              break;
-            case 'pause':
-              sendCommand(token, 'pause', 'PUT', undefined, sid);
-              break;
-            case 'next':
-              sendCommand(token, 'next', 'POST', undefined, sid);
-              break;
-            case 'previous':
-              sendCommand(token, 'previous', 'POST', undefined, sid);
-              break;
-            case 'seek':
-              if (msg.seekMs != null) {
-                sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(msg.seekMs)}`, sid);
-              }
-              break;
-          }
-          session.pollNow();
+          (async () => {
+            switch (msg.action) {
+              case 'play':
+                await sendCommand(token, 'play', 'PUT', undefined, sid);
+                break;
+              case 'pause':
+                await sendCommand(token, 'pause', 'PUT', undefined, sid);
+                break;
+              case 'next':
+                await sendCommand(token, 'next', 'POST', undefined, sid);
+                break;
+              case 'previous':
+                await sendCommand(token, 'previous', 'POST', undefined, sid);
+                break;
+              case 'seek':
+                if (msg.seekMs != null) {
+                  await sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(msg.seekMs)}`, sid);
+                }
+                break;
+            }
+            session.pollNow();
+          })().catch(err => {
+            if (err instanceof BudgetExceededError) return; // silently drop — client will retry
+            console.error('WS command error:', err);
+          });
         }
       } catch {
         // Ignore malformed messages

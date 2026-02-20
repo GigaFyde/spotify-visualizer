@@ -200,12 +200,13 @@ export class SpotifyClient {
 
   /**
    * Processing loop: acquires rate limit tokens and releases queue entries.
-   * The PriorityQueue handles ordering (high first, normal second).
-   * The RateLimiter controls flow rate.
+   * Peeks at the next entry's priority so the rate limiter's minTokensForPoll
+   * reserve is respected for normal-priority requests.
    */
   private async runProcessor(): Promise<void> {
     while (this.queue.size > 0) {
-      const acquired = await this.rateLimiter.acquire('high');
+      const nextPriority = this.queue.peekPriority() ?? 'normal';
+      const acquired = await this.rateLimiter.acquire(nextPriority);
       if (acquired && this.queue.size > 0) {
         this.queue.processNext();
       }
@@ -229,6 +230,7 @@ export class SpotifyClient {
       if (response.status !== 429) {
         // Non-429: record success, reset backoff tracking
         this.circuitBreaker.recordSuccess();
+        this.circuitBreaker.maybeResetCooldown();
         if (this.consecutive429s > 0) {
           this.consecutive429s = 0;
           this.broadcastHealth();
@@ -259,12 +261,12 @@ export class SpotifyClient {
     if (retryAfter) {
       const seconds = Number(retryAfter);
       if (!Number.isNaN(seconds) && seconds > 0) {
-        return seconds * 1000;
+        return Math.min(seconds * 1000, BACKOFF_MAX_MS);
       }
       // Try HTTP-date format
       const date = new Date(retryAfter);
       if (!Number.isNaN(date.getTime())) {
-        return Math.max(0, date.getTime() - Date.now());
+        return Math.min(Math.max(0, date.getTime() - Date.now()), BACKOFF_MAX_MS);
       }
     }
 
