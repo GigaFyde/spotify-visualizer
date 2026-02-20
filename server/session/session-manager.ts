@@ -136,6 +136,14 @@ export class SessionManager {
     return this.sessions.size;
   }
 
+  get pollingCount(): number {
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (session.isPolling()) count++;
+    }
+    return count;
+  }
+
   private async getAccessTokenForSession(session: UserSession): Promise<string | null> {
     if (!session.tokens.accessToken) return null;
 

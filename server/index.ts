@@ -160,6 +160,21 @@ app.post('/api/cast-token', (c) => {
   return c.json({ castToken: token });
 });
 
+// Admin endpoint — rate limit diagnostics
+app.get('/api/admin/rate-limit-stats', (c) => {
+  const stats = spotifyClient.getStats();
+  return c.json({
+    rateLimiter: stats.rateLimiter,
+    circuitBreaker: stats.circuitBreaker,
+    sessions: {
+      total: sessionManager.size,
+      polling: sessionManager.pollingCount,
+      budgets: stats.sessions.budgets,
+    },
+    health: stats.health,
+  });
+});
+
 // Serve static files in production — no-cache on HTML, immutable on hashed assets
 app.use('/*', async (c, next) => {
   await next();
