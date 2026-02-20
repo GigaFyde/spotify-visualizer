@@ -28,7 +28,13 @@ export interface PlaybackStateMessage {
   isPlaying: boolean;
 }
 
-export type ServerMessage = TrackUpdateMessage | TrianglesMessage | BeatMessage | PlaybackStateMessage;
+export interface ApiHealthMessage {
+  type: 'api_health';
+  status: 'ok' | 'degraded' | 'limited';
+  retryAfter?: number;
+}
+
+export type ServerMessage = TrackUpdateMessage | TrianglesMessage | BeatMessage | PlaybackStateMessage | ApiHealthMessage;
 
 // Client→Server message types
 export interface CommandMessage {
