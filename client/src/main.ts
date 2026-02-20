@@ -16,6 +16,7 @@ import { updateProgressBar } from './ui/progress-bar.js';
 import { initControls } from './ui/controls.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
 import { createLoginPrompt } from './ui/login-prompt.js';
+import { initApiHealth } from './ui/api-health.js';
 import { mvMatrix, pMatrix, eyeVector } from './utils/math.js';
 import { animConfig, setAnimationPreset, ANIMATION_PRESETS } from './config/animation.js';
 
@@ -65,7 +66,7 @@ function main() {
   // WebSocket
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProto}//${location.host}/ws`;
-  const wsClient = createWSClient(wsUrl, {
+  const wsCallbacks = {
     onConnect() {
       appState.connected = true;
       if (statusEl) statusEl.textContent = 'Connected';
@@ -74,12 +75,12 @@ function main() {
       appState.connected = false;
       if (statusEl) statusEl.textContent = 'Disconnected';
     },
-    onTrackUpdate(track) {
+    onTrackUpdate(track: typeof appState.track & { name: string; artist: string; album: string }) {
       appState.track = track;
       appState.durationMs = track.durationMs;
       showToast(track.name, track.artist + ' - ' + track.album);
     },
-    onTriangles(data) {
+    onTriangles(data: VectorData) {
       // If we're in blank state, apply immediately and start fadein
       if (stateMachine.state === 'blank' || stateMachine.state === 'fadein') {
         updateMeshBuffers(gl, meshBuffers, data);
@@ -95,12 +96,12 @@ function main() {
         appState.visibleAlbumUri = appState.track.albumUri;
       }
     },
-    onBeat(beat1, beat2, beat4) {
+    onBeat(beat1: number, beat2: number, beat4: number) {
       if (beat1 > 0) { appState.beatValue = 1.0; appState.beatDelta += 1.0; }
       if (beat2 > 0) appState.beatValue2 = 1.0;
       if (beat4 > 0) appState.beatValue4 = 1.0;
     },
-    onPlaybackState(positionMs, durationMs, isPlaying) {
+    onPlaybackState(positionMs: number, durationMs: number, isPlaying: boolean) {
       appState.positionMs = positionMs;
       appState.durationMs = durationMs;
       appState.isPlaying = isPlaying;
@@ -108,7 +109,10 @@ function main() {
     onAuthRequired() {
       loginPrompt.show();
     },
-  });
+    onApiHealth: initApiHealth(),
+  };
+
+  const wsClient = createWSClient(wsUrl, wsCallbacks);
 
   // Controls
   initControls(

@@ -35,6 +35,7 @@ interface WSCallbacks {
   onConnect(): void;
   onDisconnect(): void;
   onAuthRequired?(): void;
+  onApiHealth?(status: string, retryAfter?: number): void;
 }
 
 export function createWSClient(url: string, callbacks: WSCallbacks) {
@@ -93,6 +94,9 @@ export function createWSClient(url: string, callbacks: WSCallbacks) {
             break;
           case 'auth_required':
             callbacks.onAuthRequired?.();
+            break;
+          case 'api_health':
+            callbacks.onApiHealth?.(msg.status, msg.retryAfter);
             break;
         }
       } catch (e) {

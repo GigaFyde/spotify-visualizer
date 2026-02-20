@@ -141,3 +141,21 @@ div.status {
   border-radius: 24px; text-decoration: none; transition: all 0.2s;
 }
 .login-btn:hover { background: #1fdf67; transform: scale(1.03); }
+
+/* API health indicator */
+.api-health {
+  position: absolute; top: 10px; right: 80px;
+  display: none; align-items: center; gap: 6px;
+  font: 10pt "Helvetica Neue", Helvetica, sans-serif;
+  color: rgba(255,255,255,0.6);
+  transition: opacity 0.3s ease;
+}
+.api-health.visible { display: flex; }
+.api-health-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.api-health.degraded .api-health-dot { background: #f5a623; }
+.api-health.limited .api-health-dot { background: #e74c3c; }
+.api-health.degraded .api-health-text { color: rgba(245,166,35,0.8); }
+.api-health.limited .api-health-text { color: rgba(231,76,60,0.8); }
