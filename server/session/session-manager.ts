@@ -125,6 +125,13 @@ export class SessionManager {
     return removed;
   }
 
+  /** Broadcast a message to all connected sessions. */
+  broadcastAll(message: object): void {
+    for (const session of this.sessions.values()) {
+      session.broadcast(message);
+    }
+  }
+
   get size(): number {
     return this.sessions.size;
   }

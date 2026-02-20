@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { generateCodeVerifier, generateLoginUrl, exchangeCode } from './spotify/auth.js';
-import { sendCommand } from './spotify/api.js';
+import { sendCommand, spotifyClient } from './spotify/api.js';
 import { packVectorData } from './ws/protocol.js';
 import { createTriangleCache } from './cache/triangle-cache.js';
 import { SessionManager } from './session/session-manager.js';
@@ -18,6 +18,11 @@ const COOKIE_NAME = 'spotify_session';
 const app = new Hono();
 const cache = createTriangleCache();
 const sessionManager = new SessionManager(cache);
+
+// Wire SpotifyClient health broadcasts to all sessions
+spotifyClient.setBroadcastFn((status, retryAfter) => {
+  sessionManager.broadcastAll({ type: 'api_health', status, retryAfter });
+});
 
 // Restore sessions from disk
 sessionManager.restoreFromDisk();
@@ -268,6 +273,17 @@ const server = Bun.serve<WsData>({
     },
   },
 });
+
+// Graceful shutdown
+function shutdown() {
+  console.log('Shutting down...');
+  spotifyClient.destroy();
+  server.stop();
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 console.log(`Server running on http://localhost:${server.port}`);
 console.log(`Open http://localhost:${server.port}/auth/login to authenticate with Spotify`);
