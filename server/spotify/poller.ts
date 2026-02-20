@@ -1,6 +1,7 @@
 import { getCurrentlyPlaying } from './api.js';
 
 type PollCallback = {
+  sessionId?: string;
   getAccessToken: () => Promise<string | null>;
   onTrackChange: (track: {
     name: string;
@@ -27,7 +28,7 @@ export function createPoller(callbacks: PollCallback) {
         return;
       }
 
-      const data = await getCurrentlyPlaying(token);
+      const data = await getCurrentlyPlaying(token, callbacks.sessionId);
       if (data && data.item) {
         const track = data.item;
         const uri = track.uri as string;

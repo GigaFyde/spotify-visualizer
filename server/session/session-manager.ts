@@ -4,6 +4,7 @@ import { loadSession, listSessions, ensureDir } from './storage.js';
 import type { SessionTokens } from './storage.js';
 import type { createTriangleCache } from '../cache/triangle-cache.js';
 import { refreshAccessToken } from '../spotify/auth.js';
+import { spotifyClient } from '../spotify/api.js';
 
 const CLEANUP_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const CAST_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -49,6 +50,7 @@ export class SessionManager {
       session.destroy();
       session.deleteTokens();
       this.sessions.delete(sessionId);
+      spotifyClient.removeSession(sessionId);
     }
   }
 

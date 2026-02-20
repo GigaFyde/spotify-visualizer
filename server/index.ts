@@ -117,22 +117,23 @@ app.post('/api/command', async (c) => {
 
   try {
     const token = session.tokens.accessToken;
+    const sid = session.sessionId;
     switch (body.action) {
       case 'play':
-        await sendCommand(token, 'play', 'PUT');
+        await sendCommand(token, 'play', 'PUT', undefined, sid);
         break;
       case 'pause':
-        await sendCommand(token, 'pause', 'PUT');
+        await sendCommand(token, 'pause', 'PUT', undefined, sid);
         break;
       case 'next':
-        await sendCommand(token, 'next', 'POST');
+        await sendCommand(token, 'next', 'POST', undefined, sid);
         break;
       case 'previous':
-        await sendCommand(token, 'previous', 'POST');
+        await sendCommand(token, 'previous', 'POST', undefined, sid);
         break;
       case 'seek':
         if (body.seekMs != null) {
-          await sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(body.seekMs)}`);
+          await sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(body.seekMs)}`, sid);
         }
         break;
     }
@@ -234,22 +235,23 @@ const server = Bun.serve<WsData>({
           const token = session.tokens.accessToken;
           if (!token) return;
 
+          const sid = ws.data.sessionId;
           switch (msg.action) {
             case 'play':
-              sendCommand(token, 'play', 'PUT');
+              sendCommand(token, 'play', 'PUT', undefined, sid);
               break;
             case 'pause':
-              sendCommand(token, 'pause', 'PUT');
+              sendCommand(token, 'pause', 'PUT', undefined, sid);
               break;
             case 'next':
-              sendCommand(token, 'next', 'POST');
+              sendCommand(token, 'next', 'POST', undefined, sid);
               break;
             case 'previous':
-              sendCommand(token, 'previous', 'POST');
+              sendCommand(token, 'previous', 'POST', undefined, sid);
               break;
             case 'seek':
               if (msg.seekMs != null) {
-                sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(msg.seekMs)}`);
+                sendCommand(token, 'seek', 'PUT', `position_ms=${Math.round(msg.seekMs)}`, sid);
               }
               break;
           }

@@ -64,6 +64,7 @@ export class UserSession {
     if (this.poller) return;
 
     this.poller = createPoller({
+      sessionId: this.sessionId,
       getAccessToken: () => this.getAccessToken(this),
 
       onTrackChange: async (track) => {
