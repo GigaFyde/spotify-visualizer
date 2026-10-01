@@ -6,3 +6,5 @@ bun.lock
 .DS_Store
 .idea/
 .sessions/
+.nexus/project.local.yml
+.nexus/project.yml.dropped
